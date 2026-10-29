@@ -1,4 +1,5 @@
 import { WalkingRouter, metersBetween } from './router.js';
+import { LocationWatch, routeProgress, currentInstruction } from './navigation.js';
 
 const paths = {
   pin:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
@@ -20,6 +21,9 @@ const paths = {
   download:'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-9v.1"/>'
 };
+paths.left='<path d="M19 20v-9a4 4 0 0 0-4-4H5m5-5L5 7l5 5"/>';
+paths.right='<path d="M5 20v-9a4 4 0 0 1 4-4h10m-5-5 5 5-5 5"/>';
+paths.straight='<path d="M12 21V3m-6 6 6-6 6 6"/>';
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.pin}</svg>`;
 const $ = id => document.getElementById(id);
 function el(tag, className, text) { const e = document.createElement(tag); if (className) e.className = className; if (text !== undefined) e.textContent = text; return e; }
@@ -27,8 +31,11 @@ function symbol(name, className = '') { const e = el('span',className); e.innerH
 document.querySelectorAll('[data-icon]').forEach(e => { e.innerHTML = icon(e.dataset.icon); });
 
 let places = [], router, origin, destination = null, category = 'all', map, routeLayer, startMarker;
-let markers = new Map(), routeCache = new Map(), currentRoute = null, toastTimer, loadVersion = 0;
+let markers = new Map(), routeCache = new Map(), currentRoute = null, toastTimer;
 let avoidStairs = false, locationReading = false;
+let walkMode=null, walkSteps=[], activeStep=0, phoneMarker=null, accuracyCircle=null, lastFix=null;
+let followLocation=true, liveOriginSet=false, offRouteFixes=0, lastReroute=0, arrivalFixes=0;
+const locationWatch=new LocationWatch(navigator.geolocation,receiveFix,locationState);
 const params = new URLSearchParams(location.search);
 const requestedStart = (params.get('start') || params.get('from') || '').toLowerCase();
 const requestedDestination = (params.get('to') || '').toLowerCase();
@@ -60,7 +67,7 @@ function setOrigin(place, update = true) {
     const o = el('option','', 'Phone location (last fix)'); o.value = 'phone'; $('start-select').append(o);
   }
   $('start-select').value = place.id;
-  $('origin-context').textContent = place.id === 'phone' ? 'From your phone’s last location reading.' : requestedStart === place.id ? 'Starting point supplied by this location link.' : 'Your route starts at this mapped location.';
+  $('origin-context').textContent = place.id === 'phone' ? walkMode==='live' ? 'Walk start from GPS. The blue dot follows you.' : 'From your phone’s last location reading.' : requestedStart === place.id ? 'Starting point supplied by this location link.' : 'Your route starts at this mapped location.';
   routeCache.clear();
   updateMarkers(); renderPlaces();
   if (destination?.id === origin.id) showPlaces();
@@ -77,6 +84,7 @@ function initMap() {
   map.attributionControl.addAttribution('© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="sources.html" target="_blank" rel="noopener">Map data</a>');
   loadBasemap();
   L.control.zoom({position:'bottomright'}).addTo(map);
+  map.on('dragstart',()=>{ if(walkMode) {followLocation=false; $('recenter-map').hidden=false;} });
   for (const p of places) {
     const marker = L.marker(p.point,{icon:L.divIcon({className:'campus-marker',html:`<span class="map-pin ${p.category}">${icon(p.icon)}</span>`,iconSize:[35,35],iconAnchor:[17,17]}),title:p.name,keyboard:true}).addTo(map);
     marker.bindTooltip(document.createTextNode(p.name),{direction:'top',offset:[0,-18]});
@@ -122,7 +130,7 @@ async function loadBasemap() {
       map.on('moveend zoomend',update); update();
     }
   } catch (error) {
-    $('map-status').textContent = 'The map background could not load. Route steps and Google Maps directions are still available.'; $('map-status').hidden = false;
+    $('map-status').textContent = 'The map background could not load. Your route line and written steps are still available. Refresh to retry the background.'; $('map-status').hidden = false;
     console.error('Campus map background unavailable.',error);
   }
 }
@@ -171,6 +179,7 @@ function renderPlaces() {
 function selectDestination(id) {
   const p = places.find(p => p.id === id); if (!p) return;
   if (p.id === origin.id) { toast('This is your starting point. Choose another destination.'); return; }
+  if(walkMode) endWalk();
   destination = p;
   $('places').hidden = true; $('route-view').hidden = false;
   renderRoute(); updateAddress();
@@ -178,6 +187,7 @@ function selectDestination(id) {
   else document.querySelector('.finder').scrollTo({top:0,behavior:'smooth'});
 }
 function showPlaces() {
+  endWalk();
   destination = null; currentRoute = null;
   $('places').hidden = false; $('route-view').hidden = true;
   $('map-heading').textContent = 'University Park'; $('map-description').textContent = 'Campus to College Avenue';
@@ -189,20 +199,18 @@ function renderRoute() {
   $('route-category').textContent = categoryNames[destination.category];
   $('route-title').textContent = destination.name; $('route-subtitle').textContent = destination.detail;
   $('avoid-stairs').checked = avoidStairs;
-  const maps = new URL('https://www.google.com/maps/dir/');
-  maps.searchParams.set('api','1'); maps.searchParams.set('origin',origin.point.join(',')); maps.searchParams.set('destination',destination.point.join(',')); maps.searchParams.set('travelmode','walking');
-  $('maps-link').href = maps.href;
   currentRoute = routeFor(destination);
   $('route-steps').replaceChildren();
   if (routeLayer) { routeLayer.remove(); routeLayer = null; }
   $('route-summary').hidden = !currentRoute;
-  $('route-state').textContent = !router ? 'Loading the campus walking paths…' : !currentRoute ? 'No mapped route is available with this starting point and setting. Try another starting point or open Google Maps for walking directions.' : currentRoute.hasStairs ? 'This route includes mapped stairs.' : '';
+  $('start-walk').disabled=$('preview-walk').disabled=!currentRoute || !map;
+  $('route-state').textContent = !router ? 'Loading the campus walking paths…' : !currentRoute ? 'No mapped route is available with this starting point and setting. Choose another starting point or change the stairs setting.' : currentRoute.hasStairs ? 'This route includes mapped stairs.' : '';
   $('map-heading').textContent = destination.name; $('map-description').textContent = `Walking from ${origin.name}`;
   if (currentRoute) {
     $('route-minutes').textContent = `${currentRoute.minutes} min`; $('route-distance').textContent = formatDistance(currentRoute.distance);
-    const steps = router.instructions(currentRoute);
+    walkSteps = router.instructions(currentRoute); activeStep=0;
     if (currentRoute.startSnap.distance > 12) addStep('Join the highlighted outdoor path near your starting point.',formatDistance(currentRoute.startSnap.distance));
-    for (const step of steps) addStep(step.text,formatDistance(step.distance));
+    for (let i=0;i<walkSteps.length;i++) addStep(walkSteps[i].text,formatDistance(walkSteps[i].distance),'',i);
     addStep(`Arrive near ${destination.name}`,destination.id === 'downtown-food' ? 'Dining area around College Avenue and Allen Street' : 'Follow signs to the entrance','arrival');
     $('step-count').textContent = `${$('route-steps').children.length} steps`;
     if (map) {
@@ -211,11 +219,123 @@ function renderRoute() {
         L.polyline(currentRoute.points,{color:'#254f7d',weight:5,opacity:1,lineCap:'round'})
       ]).addTo(map);
     }
-  } else $('step-count').textContent = '';
-  updateMarkers(); fitMap();
+  } else { walkSteps=[]; $('step-count').textContent = ''; }
+  updateMarkers(); if(!walkMode) fitMap();
+  if(walkMode==='preview') renderPreview();
 }
-function addStep(text,distance,className='') {
-  const item = el('li',className); item.append(el('span','',text),el('small','',distance)); $('route-steps').append(item);
+function addStep(text,distance,className='',index=null) {
+  const item = el('li',className); if(index!==null) item.dataset.step=index;
+  item.append(el('span','',text),el('small','',distance)); $('route-steps').append(item);
+}
+function walkingUI(mode) {
+  walkMode=mode; document.body.classList.toggle('walking',!!mode);
+  $('walk-hud').hidden=$('walk-controls').hidden=!mode;
+  $('preview-controls').hidden=mode!=='preview';
+  $('start-walk').hidden=$('preview-walk').hidden=!!mode;
+  $('navigation-note').hidden=!!mode; $('stop-walk').textContent=mode==='preview' ? 'Close preview' : 'End walk';
+  $('recenter-map').hidden=true; followLocation=true;
+  requestAnimationFrame(()=>map?.invalidateSize());
+}
+function hud(title,detail,maneuver='walk') {
+  $('walk-label').textContent=walkMode==='preview' ? 'ROUTE PREVIEW · SIMULATED' : 'LIVE WALK';
+  $('walk-instruction').textContent=title; $('walk-detail').textContent=detail;
+  $('walk-symbol').replaceChildren(symbol(paths[maneuver] ? maneuver : 'walk'));
+}
+function highlightStep() {
+  document.querySelectorAll('[data-step]').forEach(item=>{
+    const active=Number(item.dataset.step)===activeStep;
+    item.classList.toggle('active-step',active);
+    if(active) item.setAttribute('aria-current','step'); else item.removeAttribute('aria-current');
+  });
+  const arrival=$('route-steps').querySelector('.arrival');
+  if(arrival) arrival.classList.toggle('active-step',activeStep===walkSteps.length);
+}
+function drawPosition(point,accuracy=null,simulated=false) {
+  if(!map) return;
+  if(!phoneMarker) phoneMarker=L.marker(point,{zIndexOffset:1800,keyboard:false}).addTo(map);
+  phoneMarker.setLatLng(point).setIcon(L.divIcon({className:'position-marker',html:`<span class="live-dot${simulated ? ' simulated' : ''}"></span>`,iconSize:[20,20],iconAnchor:[10,10]}));
+  phoneMarker.options.title=simulated ? 'Simulated position in route preview' : 'Your phone location';
+  if(accuracy!==null) {
+    if(!accuracyCircle) accuracyCircle=L.circle(point,{radius:accuracy,color:'#3475b8',weight:1,fillOpacity:.10,interactive:false}).addTo(map);
+    accuracyCircle.setLatLng(point).setRadius(accuracy);
+  } else if(accuracyCircle) {accuracyCircle.remove(); accuracyCircle=null;}
+  if(followLocation) map.panTo(point,{animate:false});
+}
+function endWalk() {
+  locationWatch.stop(); walkingUI(null); lastFix=null; liveOriginSet=false;
+  if(phoneMarker) {phoneMarker.remove();phoneMarker=null;}
+  if(accuracyCircle) {accuracyCircle.remove();accuracyCircle=null;}
+  document.querySelectorAll('.active-step').forEach(item=>item.classList.remove('active-step'));
+  document.querySelectorAll('[aria-current="step"]').forEach(item=>item.removeAttribute('aria-current'));
+  if(origin?.id==='phone') $('origin-context').textContent='From your phone’s last location reading.';
+}
+function startPreview() {
+  if(!currentRoute || !map) return;
+  endWalk(); walkingUI('preview'); activeStep=0; message('');
+  $('walk-status').textContent='Preview only. The orange dot is a simulated position; your location is not being used.';
+  renderPreview();
+  if(matchMedia('(max-width:700px)').matches) document.querySelector('.map-panel').scrollIntoView({block:'start'});
+}
+function renderPreview() {
+  const step=walkSteps[activeStep];
+  $('previous-step').disabled=activeStep===0; $('next-step').disabled=activeStep>=walkSteps.length;
+  $('preview-count').textContent=`${activeStep+1} / ${walkSteps.length+1}`;
+  hud(step?.text || `Arrive near ${destination.name}`,step ? `Follow the highlighted path for ${formatDistance(step.distance)}.` : 'Follow signs to the entrance.',step?.maneuver || 'pin');
+  highlightStep();
+  const point=step ? currentRoute.points[step.startIndex] : currentRoute.points.at(-1);
+  drawPosition(point,null,true);
+  if(map && followLocation) map.setView(point,17,{animate:false});
+}
+function startWalk() {
+  if(!currentRoute || !map) return;
+  if(!window.isSecureContext) { message('Live location needs HTTPS. On the published website, press Start walk and allow location access. You can use Preview route here.'); return; }
+  endWalk(); message(''); walkingUI('live'); offRouteFixes=arrivalFixes=0;
+  locationWatch.start();
+  if(matchMedia('(max-width:700px)').matches) document.querySelector('.map-panel').scrollIntoView({block:'start'});
+}
+function locationState(state) {
+  if(walkMode!=='live') return;
+  const messages={locating:'Finding your location. Allow location access when your browser asks.',weak:'Waiting for a more accurate GPS reading. Try moving outdoors.',timeout:'Still waiting for GPS. Keep this page open or end the walk.',unavailable:'Location is temporarily unavailable. Keep this page open to retry.'};
+  if(state==='denied' || state==='unsupported') {
+    endWalk(); message(state==='denied' ? 'Location access was denied. Allow it in your browser settings, or use Preview route and the written steps.' : 'This browser does not provide live location. Use Preview route and the written steps.'); return;
+  }
+  if(messages[state]) { $('walk-status').textContent=messages[state]; hud(state==='locating' ? 'Finding your location…' : 'Waiting for GPS…',messages[state],'locate'); }
+}
+function receiveFix(fix) {
+  if(walkMode!=='live') return;
+  const [lat,lng]=fix.point;
+  if(lat<40.787 || lat>40.809 || lng< -77.875 || lng> -77.850 || router.nearest(fix.point,avoidStairs).distance>120) {
+    endWalk(); message('Your location is outside the mapped campus paths. Choose a starting point to preview a route.'); return;
+  }
+  lastFix=fix;
+  if(!liveOriginSet) {
+    liveOriginSet=true; lastReroute=fix.timestamp;
+    setOrigin({id:'phone',name:'Your phone location',point:fix.point});
+    if(map) map.setView(fix.point,17,{animate:false});
+  }
+  if(!currentRoute) {endWalk();message('A route from your phone location could not be found with this setting. Choose a nearby starting point or change the stairs setting.');return;}
+  let progress=routeProgress(currentRoute.points,fix.point);
+  offRouteFixes=progress.distanceToRoute>Math.max(35,fix.accuracy*1.5) ? offRouteFixes+1 : 0;
+  if(offRouteFixes>=3 && fix.timestamp-lastReroute>=10000) {
+    origin.point=fix.point; routeCache.clear(); renderRoute(); offRouteFixes=0; lastReroute=fix.timestamp;
+    if(!currentRoute) {endWalk();message('No mapped route was found from here. Choose another starting point.');return;}
+    progress=routeProgress(currentRoute.points,fix.point); toast('Walking route updated from your location.');
+  }
+  const remaining=progress.remaining+currentRoute.endSnap.distance+progress.distanceToRoute;
+  activeStep=currentInstruction(walkSteps,progress.traveled); highlightStep();
+  const step=walkSteps[activeStep];
+  const near=metersBetween(fix.point,destination.point)<=18 && fix.accuracy<=25 && remaining<=35;
+  arrivalFixes=near ? arrivalFixes+1 : 0;
+  drawPosition(fix.point,fix.accuracy);
+  $('route-minutes').textContent=`${Math.max(1,Math.ceil(remaining/75))} min`; $('route-distance').textContent=formatDistance(remaining);
+  $('walk-status').textContent=`GPS active · accuracy about ${Math.round(fix.accuracy)} m. Keep this page open. Drag the map to look around; Recenter resumes following.`;
+  hud(step?.text || `Continue to ${destination.name}`,`${formatDistance(Math.max(0,(step?.endDistance || 0)-progress.traveled))} on this step · ${formatDistance(remaining)} remaining`,step?.maneuver || 'walk');
+  if(arrivalFixes>=2) {
+    locationWatch.stop(); activeStep=walkSteps.length; highlightStep();
+    $('route-minutes').textContent='Arrived'; $('route-distance').textContent='Nearby';
+    $('walk-status').textContent='You are near the mapped destination. GPS updates have stopped. Follow signs to the entrance.';
+    hud(`You’re near ${destination.name}`,'Walk complete. Follow signs to the entrance.','pin');
+  }
 }
 function tagUrl(id) { const u = new URL(location.pathname,location.origin); u.searchParams.set('start',id); return u.href; }
 async function copy(text,input) {
@@ -238,6 +358,7 @@ function setupTags() {
 function openSetup() { setupTags(); $('setup-dialog').showModal(); }
 async function getLocation() {
   if (locationReading) return;
+  if(walkMode) endWalk();
   if (!navigator.geolocation) { message('This browser cannot provide a location. Choose a starting point instead.'); return; }
   locationReading = true; $('use-location').disabled = true; $('use-location').replaceChildren(symbol('locate'),document.createTextNode('Finding your location…')); message('');
   const finish = () => { locationReading = false; $('use-location').disabled = false; $('use-location').replaceChildren(symbol('locate'),document.createTextNode('Use my location')); };
@@ -256,11 +377,19 @@ document.querySelectorAll('[data-category]').forEach(button => button.addEventLi
   category = button.dataset.category;
   document.querySelectorAll('[data-category]').forEach(b => { const active = b === button; b.classList.toggle('active',active); b.setAttribute('aria-pressed',String(active)); }); renderPlaces();
 }));
-$('start-select').addEventListener('change',event => { const p = places.find(p => p.id === event.target.value); if (p) { message(''); setOrigin(p); } else if (event.target.value === 'phone') getLocation(); });
+$('start-select').addEventListener('change',event => { const p = places.find(p => p.id === event.target.value); if (p) { endWalk(); message(''); setOrigin(p); } else if (event.target.value === 'phone') getLocation(); });
 $('use-location').addEventListener('click',getLocation);
-$('avoid-stairs').addEventListener('change',event => { avoidStairs = event.target.checked; renderRoute(); updateAddress(); });
+$('avoid-stairs').addEventListener('change',event => { avoidStairs = event.target.checked; if(walkMode==='live' && lastFix) origin.point=lastFix.point; renderRoute(); updateAddress(); });
 $('back-to-places').addEventListener('click',showPlaces);
-$('fit-map').addEventListener('click',fitMap);
+$('fit-map').addEventListener('click',()=>{if(walkMode){followLocation=false;$('recenter-map').hidden=false;}fitMap();});
+$('start-walk').addEventListener('click',startWalk);
+$('preview-walk').addEventListener('click',startPreview);
+$('stop-walk').addEventListener('click',()=>{endWalk(); if(destination) renderRoute();});
+$('previous-step').addEventListener('click',()=>{activeStep=Math.max(0,activeStep-1); renderPreview();});
+$('next-step').addEventListener('click',()=>{activeStep=Math.min(walkSteps.length,activeStep+1); renderPreview();});
+$('recenter-map').addEventListener('click',()=>{followLocation=true; $('recenter-map').hidden=true; if(walkMode==='preview') renderPreview(); else if(lastFix) map?.panTo(lastFix.point,{animate:false});});
+window.addEventListener('pagehide',endWalk);
+document.addEventListener('visibilitychange',()=>{if(document.hidden && walkMode==='live'){endWalk();message('Walk paused while the page was hidden. Press Start walk to resume live location.');}});
 $('setup-open').addEventListener('click',openSetup);
 $('setup-close').addEventListener('click',() => $('setup-dialog').close());
 $('setup-dialog').addEventListener('click',event => { if (event.target === $('setup-dialog')) { const rect = event.target.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.target.close(); } });
@@ -284,7 +413,7 @@ async function init() {
     router = new WalkingRouter(await graphResponse.json()); renderPlaces(); if (destination) renderRoute();
     if (location.hash === '#tags') openSetup();
   } catch (error) {
-    if (places.length) { message('Campus path data could not load. Choose a destination to open Google Maps walking directions, or refresh to try again.'); renderPlaces(); if (destination) renderRoute(); }
+    if (places.length) { message('Campus path data could not load. Refresh to retry the walking routes.'); renderPlaces(); if (destination) renderRoute(); }
     else { $('place-list').replaceChildren(el('p','empty-state','Campus places could not load. Please refresh to try again.')); message('The campus demo is temporarily unavailable.'); }
     console.error('Campus Tap could not load its local map data.',error);
   }

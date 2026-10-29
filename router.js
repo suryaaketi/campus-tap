@@ -96,26 +96,33 @@ export class WalkingRouter {
     return { points: indices.map(i => this.data.nodes[i]), indices, edgeIndices, distance, minutes: Math.max(1, Math.ceil(distance / 75)), startSnap: a, endSnap: b, hasStairs: edgeIndices.some(i => this.data.edges[i][4] & 1) };
   }
   instructions(route) {
-    const groups = [];
-    for (let i = 0; i < route.edgeIndices.length; i++) {
-      const edge = this.data.edges[route.edgeIndices[i]];
-      const name = (edge[4] & 1) ? 'the mapped stairs' : this.data.names[edge[3]] || 'the campus walking path';
-      const previous = groups[groups.length - 1];
-      if (previous && previous.name === name) { previous.distance += edge[2]; previous.end = i + 1; }
-      else groups.push({ name, distance: edge[2], start: i, end: i + 1, stairs: !!(edge[4] & 1) });
-    }
-    // Keep every named path transition; only combine short unnamed path fragments.
-    return groups.filter(g => g.distance >= 5 || g.stairs).map((g, i) => {
-      let turn = i === 0 ? 'Start' : 'Continue';
-      const p = route.points[g.start], q = route.points[Math.min(g.start + 1, route.points.length - 1)];
-      if (i > 0 && g.start > 0) {
-        const prev = route.points[g.start - 1];
-        const bearing = (a, b) => Math.atan2((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180), b[0] - a[0]) * 180 / Math.PI;
-        const change = ((bearing(p, q) - bearing(prev, p) + 540) % 360) - 180;
-        if (change > 25) turn = 'Turn right';
-        else if (change < -25) turn = 'Turn left';
+    const edges=route.edgeIndices.map(i=>this.data.edges[i]), points=route.points;
+    if (!edges.length) return [];
+    const cumulative=[0];
+    for(let i=0;i<edges.length;i++) cumulative.push(cumulative[i]+metersBetween(points[i],points[i+1]));
+    const bearing=(a,b)=>Math.atan2((b[1]-a[1])*Math.cos(a[0]*Math.PI/180),b[0]-a[0])*180/Math.PI;
+    const corner=index=>{
+      let before=index-1, after=index+1;
+      while(before>0 && cumulative[index]-cumulative[before]<9) before--;
+      while(after<points.length-1 && cumulative[after]-cumulative[index]<9) after++;
+      return ((bearing(points[index],points[after])-bearing(points[before],points[index])+540)%360)-180;
+    };
+    const path=edge=>(edge[4]&1) ? 'the mapped stairs' : this.data.names[edge[3]] || 'the campus walking path';
+    const groups=[];
+    let start=0;
+    for(let i=1;i<edges.length;i++) {
+      const changed=path(edges[i])!==path(edges[i-1]);
+      const distance=cumulative[i]-cumulative[start];
+      if(changed || (distance>=14 && cumulative.at(-1)-cumulative[i]>=10 && Math.abs(corner(i))>=43)) {
+        groups.push({start,end:i}); start=i;
       }
-      return { text: g.stairs ? `${turn} using ${g.name}` : `${turn} along ${g.name}`, distance: Math.round(g.distance), stairs: g.stairs };
+    }
+    groups.push({start,end:edges.length});
+    return groups.map((g,i)=>{
+      const change=i ? corner(g.start) : 0, stairs=!!(edges[g.start][4]&1);
+      const maneuver=!i ? 'start' : change>35 ? 'right' : change< -35 ? 'left' : 'straight';
+      const turn=!i ? 'Start' : maneuver==='right' ? 'Turn right' : maneuver==='left' ? 'Turn left' : 'Continue';
+      return {text:`${turn} ${stairs ? 'using' : 'along'} ${path(edges[g.start])}`,distance:Math.round(cumulative[g.end]-cumulative[g.start]),stairs,maneuver,startIndex:g.start,endIndex:g.end,startDistance:cumulative[g.start],endDistance:cumulative[g.end]};
     });
   }
 }

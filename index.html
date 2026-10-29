@@ -58,7 +58,13 @@
         <div id="route-state" role="status"></div>
         <div class="route-summary" id="route-summary" hidden><div><strong id="route-minutes"></strong><span>estimated walk</span></div><div><strong id="route-distance"></strong><span>outdoor route</span></div><span class="walking-badge" data-icon="walk"></span></div>
         <label class="stairs-toggle"><input type="checkbox" id="avoid-stairs"><span>Avoid mapped stairs</span></label>
-        <div class="route-actions"><a id="maps-link" class="primary-button" target="_blank" rel="noopener">Open in Google Maps<span data-icon="external"></span></a></div>
+        <div class="route-actions"><button id="start-walk" class="primary-button" type="button"><span data-icon="walk"></span>Start walk</button><button id="preview-walk" class="secondary-button" type="button">Preview route</button></div>
+        <div id="walk-controls" class="walk-controls" hidden>
+          <p id="walk-status" role="status"></p>
+          <div class="preview-controls" id="preview-controls" hidden><button id="previous-step" type="button">Previous</button><span id="preview-count"></span><button id="next-step" type="button">Next step</button></div>
+          <button id="stop-walk" class="secondary-button" type="button">End walk</button>
+        </div>
+        <p class="navigation-note" id="navigation-note">Start walk uses your phone location while this page is open. Preview route lets you inspect each step without location access.</p>
         <div class="steps-heading"><h3>Your walking route</h3><span id="step-count"></span></div>
         <ol id="route-steps" class="route-steps"></ol>
         <div class="route-footnote"><span data-icon="info"></span><p>Routes use mapped outdoor paths. Times are estimates. Follow posted signs and crossings; closures and building access may differ.</p></div>
@@ -70,7 +76,9 @@
     <section class="map-panel" aria-label="Campus walking map">
       <div id="map" aria-label="Interactive map of University Park"></div>
       <div class="map-title"><span class="map-title-icon" data-icon="walk"></span><div><strong id="map-heading">University Park</strong><span id="map-description">Campus to College Avenue</span></div></div>
+      <div id="walk-hud" class="walk-hud" hidden role="status"><span class="walk-hud-symbol" id="walk-symbol" data-icon="walk"></span><div><span id="walk-label">YOUR WALK</span><strong id="walk-instruction"></strong><small id="walk-detail"></small></div></div>
       <button class="fit-map" id="fit-map" aria-label="Fit map to route or campus places" title="Fit map"><span data-icon="expand"></span></button>
+      <button class="recenter-map" id="recenter-map" type="button" hidden><span data-icon="locate"></span>Recenter</button>
       <div class="map-legend"><span class="legend-start"></span>Starting point<span class="legend-destination"></span>Places<span class="legend-route"></span>Walking route</div>
       <div class="map-status" id="map-status" role="status" hidden></div>
     </section>
