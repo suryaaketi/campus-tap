@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#142c4e">
+  <meta name="description" content="Tap a campus NFC tag, choose your next stop, and find a walking route around Penn State University Park and downtown State College.">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Campus Tap · University Park walking guide</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/leaflet/leaflet.js" defer></script>
+  <script src="app.js" type="module"></script>
+</head>
+<body>
+  <a class="skip-link" href="#places">Skip to destinations</a>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Campus Tap home">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 28S6 20 6 12a10 10 0 0 1 20 0c0 8-10 16-10 16Z"/><circle cx="16" cy="12" r="4"/></svg></span>
+      <span><strong>Campus Tap<span class="brand-dot">.</span></strong><small>UNIVERSITY PARK</small></span>
+    </a>
+    <div class="header-note"><span class="status-dot"></span>A little less lost. A little more campus.</div>
+    <button class="setup-button" id="setup-open"><span data-icon="nfc"></span><span>NFC tag setup</span></button>
+  </header>
+
+  <main class="app-layout">
+    <aside class="finder" aria-label="Find a walking route">
+      <section class="finder-top">
+        <div class="eyebrow">PENN STATE & DOWNTOWN</div>
+        <h1>Where are<br>you headed?</h1>
+        <p class="intro">Your next stop is a short walk away.</p>
+        <div class="origin-card">
+          <div class="origin-icon" data-icon="start"></div>
+          <div class="origin-field"><label for="start-select" id="origin-label">STARTING POINT</label><select id="start-select" aria-describedby="origin-context"></select><span id="origin-context">Choose a spot, or use your phone location.</span></div>
+        </div>
+        <button class="location-button" id="use-location"><span data-icon="locate"></span>Use my location</button>
+        <p class="inline-message" id="location-message" role="status" hidden></p>
+      </section>
+
+      <section class="place-browser" id="places">
+        <div class="search-field"><span data-icon="search"></span><input type="search" id="search" placeholder="Search campus & downtown" aria-label="Search destinations"><kbd aria-hidden="true">/</kbd></div>
+        <div class="categories" role="group" aria-label="Filter destinations">
+          <button class="category active" data-category="all" aria-pressed="true">All places</button>
+          <button class="category" data-category="study" aria-pressed="false">Study</button>
+          <button class="category" data-category="food" aria-pressed="false">Food</button>
+          <button class="category" data-category="campus" aria-pressed="false">Campus</button>
+        </div>
+        <div class="section-label"><span id="list-label">EXPLORE NEARBY</span><span id="place-count"></span></div>
+        <div id="place-list" class="place-list" aria-live="polite"><p class="loading">Loading campus places…</p></div>
+      </section>
+
+      <section class="route-view" id="route-view" hidden>
+        <button class="back-button" id="back-to-places"><span data-icon="back"></span>All places</button>
+        <div id="route-category" class="eyebrow"></div>
+        <h2 id="route-title"></h2>
+        <p id="route-subtitle" class="route-subtitle"></p>
+        <div id="route-state" role="status"></div>
+        <div class="route-summary" id="route-summary" hidden><div><strong id="route-minutes"></strong><span>estimated walk</span></div><div><strong id="route-distance"></strong><span>outdoor route</span></div><span class="walking-badge" data-icon="walk"></span></div>
+        <label class="stairs-toggle"><input type="checkbox" id="avoid-stairs"><span>Avoid mapped stairs</span></label>
+        <div class="route-actions"><a id="maps-link" class="primary-button" target="_blank" rel="noopener">Open in Google Maps<span data-icon="external"></span></a></div>
+        <div class="steps-heading"><h3>Your walking route</h3><span id="step-count"></span></div>
+        <ol id="route-steps" class="route-steps"></ol>
+        <div class="route-footnote"><span data-icon="info"></span><p>Routes use mapped outdoor paths. Times are estimates. Follow posted signs and crossings; closures and building access may differ.</p></div>
+      </section>
+
+      <footer class="finder-footer"><span class="tiny-pin" data-icon="pin"></span><span>Made for the walk between things.</span><small>Student prototype · Not an official Penn State service</small></footer>
+    </aside>
+
+    <section class="map-panel" aria-label="Campus walking map">
+      <div id="map" aria-label="Interactive map of University Park"></div>
+      <div class="map-title"><span class="map-title-icon" data-icon="walk"></span><div><strong id="map-heading">University Park</strong><span id="map-description">Campus to College Avenue</span></div></div>
+      <button class="fit-map" id="fit-map" aria-label="Fit map to route or campus places" title="Fit map"><span data-icon="expand"></span></button>
+      <div class="map-legend"><span class="legend-start"></span>Starting point<span class="legend-destination"></span>Places<span class="legend-route"></span>Walking route</div>
+      <div class="map-status" id="map-status" role="status" hidden></div>
+    </section>
+  </main>
+
+  <dialog id="setup-dialog" aria-labelledby="setup-title">
+    <div class="dialog-heading"><div><span class="eyebrow">TRY IT WITH A REAL TAG</span><h2 id="setup-title">One tag. One starting point.</h2></div><button id="setup-close" class="icon-button" aria-label="Close NFC setup"><span data-icon="close"></span></button></div>
+    <p class="dialog-intro">Copy the link for where you will place a tag. Write it as a <strong>URL / URI</strong> using the free NFC Tools app, then tap the tag with your phone.</p>
+    <ol class="setup-steps"><li><b>Copy a location link</b><span>Each link gives the map its starting point.</span></li><li><b>Write it to your NFC tag</b><span>NFC Tools: Write, Add a record, URL / URI, then Write.</span></li><li><b>Tap, choose, walk</b><span>Open the notification and choose a destination.</span></li></ol>
+    <div id="tag-links" class="tag-links"></div>
+    <button id="download-tags" class="download-button"><span data-icon="download"></span>Download all tag links as CSV</button>
+    <p class="setup-note">Keep prototype tags writable. A tag fixes your starting point; it does not track your movement. Phone location is optional and is not saved by this demo.</p>
+    <div class="setup-links"><a href="https://apps.apple.com/us/app/nfc-tools/id1252962749" target="_blank" rel="noopener">NFC Tools for iPhone<span data-icon="external"></span></a><a href="https://play.google.com/store/apps/details?id=com.wakdev.wdnfc" target="_blank" rel="noopener">NFC Tools for Android<span data-icon="external"></span></a><a href="sources.html" target="_blank" rel="noopener">Map data & sources<span data-icon="external"></span></a></div>
+  </dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <noscript><div class="noscript">Enable JavaScript to use the interactive campus walking guide.</div></noscript>
+</body>
+</html>

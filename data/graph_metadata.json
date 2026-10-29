@@ -1,0 +1,25 @@
+{
+  "inputNodes": 23711,
+  "inputEdges": 27204,
+  "componentCount": 31,
+  "largestComponentSizes": [
+    23521,
+    19,
+    15,
+    14,
+    12,
+    10,
+    9,
+    9,
+    9,
+    8,
+    8,
+    7,
+    6,
+    6,
+    5
+  ],
+  "outputNodes": 23521,
+  "outputEdges": 27042,
+  "bytes": 1217143
+}

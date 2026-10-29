@@ -1,0 +1,239 @@
+[
+  {
+    "id": "allen-gates",
+    "name": "Allen Street Gates",
+    "lat": 40.7945428,
+    "lng": -77.8617559,
+    "source": "https://www.openstreetmap.org/way/482126425",
+    "precision": "Approximate midpoint of mapped gate fence; route ends at nearest mapped outdoor path.",
+    "graphNode": 22175,
+    "snapMeters": 8.45,
+    "graphPoint": [
+      40.7945275,
+      -77.8616576
+    ],
+    "footNode": 22175,
+    "footSnapMeters": 8.45,
+    "footPoint": [
+      40.7945275,
+      -77.8616576
+    ],
+    "category": "campus",
+    "description": "Campus meets downtown",
+    "detail": "The College Avenue gateway to campus",
+    "icon": "landmark",
+    "point": [
+      40.7945428,
+      -77.8617559
+    ]
+  },
+  {
+    "id": "hub",
+    "name": "HUB Robeson Center",
+    "lat": 40.7983455,
+    "lng": -77.8617234,
+    "source": "https://www.openstreetmap.org/node/593991270",
+    "precision": "Mapped main entrance on HUB Plaza.",
+    "graphNode": 2364,
+    "snapMeters": 0.0,
+    "graphPoint": [
+      40.7983455,
+      -77.8617234
+    ],
+    "footNode": 2364,
+    "footSnapMeters": 0.0,
+    "footPoint": [
+      40.7983455,
+      -77.8617234
+    ],
+    "buildingOsmWay": 431712457,
+    "buildingName": "Hetzel Union Building",
+    "entranceNodeOsmId": 593991270,
+    "category": "campus",
+    "description": "Campus life & gathering spaces",
+    "detail": "Main entrance on HUB Plaza",
+    "icon": "hub",
+    "point": [
+      40.7983455,
+      -77.8617234
+    ]
+  },
+  {
+    "id": "library",
+    "name": "Pattee & Paterno Library",
+    "lat": 40.798239,
+    "lng": -77.8657907,
+    "source": "https://www.openstreetmap.org/node/4311608495",
+    "precision": "Mapped main entrance of Pattee Library in the connected Pattee/Paterno complex. Node belongs to Pattee relation 359265 outer way 45891374, not Paterno way 431940744.",
+    "graphNode": 4663,
+    "snapMeters": 0.0,
+    "graphPoint": [
+      40.798239,
+      -77.8657907
+    ],
+    "footNode": 4663,
+    "footSnapMeters": 0.0,
+    "footPoint": [
+      40.798239,
+      -77.8657907
+    ],
+    "buildingOsmWay": 45891374,
+    "buildingOsmRelation": 359265,
+    "buildingName": "Pattee Library",
+    "entranceNodeOsmId": 4311608495,
+    "category": "study",
+    "description": "Study spaces & library resources",
+    "detail": "Route to the mapped Pattee entrance",
+    "icon": "book",
+    "point": [
+      40.798239,
+      -77.8657907
+    ]
+  },
+  {
+    "id": "old-main",
+    "name": "Old Main",
+    "lat": 40.7963587,
+    "lng": -77.8626855,
+    "source": "https://www.openstreetmap.org/node/3917033967",
+    "precision": "Mapped main entrance.",
+    "graphNode": 21335,
+    "snapMeters": 0.0,
+    "graphPoint": [
+      40.7963587,
+      -77.8626855
+    ],
+    "footNode": 21335,
+    "footSnapMeters": 0.0,
+    "footPoint": [
+      40.7963587,
+      -77.8626855
+    ],
+    "category": "campus",
+    "description": "The heart of historic campus",
+    "detail": "Mapped main entrance",
+    "icon": "landmark",
+    "point": [
+      40.7963587,
+      -77.8626855
+    ]
+  },
+  {
+    "id": "downtown-food",
+    "name": "Downtown food district",
+    "lat": 40.79428,
+    "lng": -77.86142,
+    "source": "https://www.openstreetmap.org/node/2750499347",
+    "precision": "Approximate downtown-side sidewalk area at College Avenue and South Allen Street, not a specific restaurant or exact entrance.",
+    "graphNode": 22389,
+    "snapMeters": 10.57,
+    "graphPoint": [
+      40.7942726,
+      -77.8615452
+    ],
+    "footNode": 22389,
+    "footSnapMeters": 10.57,
+    "footPoint": [
+      40.7942726,
+      -77.8615452
+    ],
+    "category": "food",
+    "description": "College Avenue & Allen Street",
+    "detail": "Explore dining around this downtown area",
+    "icon": "food",
+    "point": [
+      40.79428,
+      -77.86142
+    ]
+  },
+  {
+    "id": "creamery",
+    "name": "Berkey Creamery",
+    "lat": 40.8036691,
+    "lng": -77.8622868,
+    "source": "https://www.openstreetmap.org/node/4294975598",
+    "precision": "Mapped main entrance of Erickson Food Science Building, near the Creamery.",
+    "graphNode": 15809,
+    "snapMeters": 0.0,
+    "graphPoint": [
+      40.8036691,
+      -77.8622868
+    ],
+    "footNode": 15809,
+    "footSnapMeters": 0.0,
+    "footPoint": [
+      40.8036691,
+      -77.8622868
+    ],
+    "category": "food",
+    "description": "A classic campus ice cream stop",
+    "detail": "Food Science Building entrance near the Creamery",
+    "icon": "icecream",
+    "point": [
+      40.8036691,
+      -77.8622868
+    ]
+  },
+  {
+    "id": "waring",
+    "name": "Waring Commons",
+    "lat": 40.7956444,
+    "lng": -77.867572,
+    "source": "https://www.openstreetmap.org/node/4309994620",
+    "precision": "Mapped main entrance.",
+    "graphNode": 21501,
+    "snapMeters": 0.0,
+    "graphPoint": [
+      40.7956444,
+      -77.867572
+    ],
+    "footNode": 21501,
+    "footSnapMeters": 0.0,
+    "footPoint": [
+      40.7956444,
+      -77.867572
+    ],
+    "buildingOsmWay": 431780864,
+    "buildingName": "Waring Commons",
+    "entranceNodeOsmId": 4309994620,
+    "category": "food",
+    "description": "Dining in West Halls",
+    "detail": "Mapped main entrance",
+    "icon": "food",
+    "point": [
+      40.7956444,
+      -77.867572
+    ]
+  },
+  {
+    "id": "pollock",
+    "name": "Pollock Commons",
+    "lat": 40.8017439,
+    "lng": -77.8567092,
+    "source": "https://www.openstreetmap.org/node/595495062",
+    "precision": "Mapped southwest entrance.",
+    "graphNode": 11632,
+    "snapMeters": 0.0,
+    "graphPoint": [
+      40.8017439,
+      -77.8567092
+    ],
+    "footNode": 11632,
+    "footSnapMeters": 0.0,
+    "footPoint": [
+      40.8017439,
+      -77.8567092
+    ],
+    "buildingOsmWay": 430434716,
+    "buildingName": "Pollock Commons",
+    "entranceNodeOsmId": 595495062,
+    "category": "food",
+    "description": "Dining in Pollock Halls",
+    "detail": "Mapped southwest entrance",
+    "icon": "food",
+    "point": [
+      40.8017439,
+      -77.8567092
+    ]
+  }
+]
