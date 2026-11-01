@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Print location signs, check tag links, and document observed Campus Tap prototype tests.">
+  <title>Campus Tap · Prototype tools</title>
+  <link rel="icon" href="icon.svg"><link rel="stylesheet" href="tools.css">
+  <script type="module" src="tools.js"></script>
+</head>
+<body>
+  <header class="tools-header"><a class="brand" href="./">Campus Tap<span>.</span><small>UNIVERSITY PARK</small></a><a class="back-link" href="./">Back to map →</a></header>
+  <main class="tools-shell">
+    <div class="tools-hero"><span class="eyebrow">FROM A WORKING DEMO TO A REAL TAP</span><h1>Make the next tap work.</h1><p>Prepare a location sign, check the link on your tag, and record what happens when you test it.</p><nav aria-label="Prototype tools"><a href="#signs">Location signs</a><a href="#checks">Website checks</a><a href="#test-log">Phone test log</a></nav></div>
+    <p class="notice" id="tools-error" role="status" hidden></p>
+
+    <section class="tool-section" id="signs" aria-labelledby="signs-title">
+      <div class="section-heading"><span class="section-number">01</span><div><h2 id="signs-title">One location. Two ways to open it.</h2><p>The NFC tag and QR code open the same starting point. Print from your published website.</p></div></div>
+      <div class="sign-layout">
+        <div class="sign-options">
+          <label for="sign-start">Tag location</label><select id="sign-start"></select>
+          <label for="sign-url">Write this URL to the NFC tag</label><input id="sign-url" type="url" readonly>
+          <button class="button secondary" id="copy-sign-link" type="button">Copy NFC link</button>
+          <div class="action-row"><a class="button" id="download-qr" hidden>Download QR PNG</a><button class="button secondary" id="print-all" type="button">Print all 8 signs</button></div>
+          <ol class="setup-list"><li>In NFC Tools, select Write → Add a record → URL / URI.</li><li>Paste this URL, save the record, and write it to the tag.</li><li>Place the written tag with its matching sign. Test both a tap and a QR scan.</li></ol>
+          <p class="small-note">The tag gives a fixed starting point. You can choose a destination and preview the route without location access. Start walk uses optional foreground GPS.</p>
+        </div>
+        <div id="sign-preview" class="sign-preview" aria-label="Selected location sign"></div>
+      </div>
+    </section>
+
+    <section class="tool-section" id="checks" aria-labelledby="checks-title">
+      <div class="section-heading"><span class="section-number">02</span><div><h2 id="checks-title">Check the link. Check the routes.</h2><p>These checks exercise the website data and walking routes. Record real phone observations in the log below.</p></div></div>
+      <form id="link-check-form" class="link-check"><label for="tag-link-input">URL read from your NFC tag or QR code</label><div class="inline-field"><input type="url" id="tag-link-input" placeholder="https://…/campus-tap/?start=hub" required><button class="button secondary" type="submit">Check tag link</button></div><p id="link-check-result" role="status" hidden></p></form>
+      <div class="check-actions"><button id="run-checks" class="button" type="button">Run website checks</button><span id="checks-status" role="status">Not run yet.</span></div>
+      <ul class="check-results" id="check-results" aria-label="Website check results"></ul>
+    </section>
+
+    <section class="tool-section" id="test-log" aria-labelledby="log-title">
+      <div class="section-heading"><span class="section-number">03</span><div><h2 id="log-title">What happened on the phone?</h2><p>Record an observed result. Include a failure or delay, the change you made, and evidence filenames when useful.</p></div></div>
+      <div class="trial-guide"><strong>Suggested trials</strong><span>NFC tap → correct starting point</span><span>QR scan → same starting point</span><span>Choose library → route and walking time</span><span>Deny GPS → route preview still works</span><span>Outdoor walk → turns and arrival</span></div>
+      <form id="test-form" class="test-form">
+        <div><label for="device">Phone / device and operating system</label><input id="device" name="device" required maxlength="100" placeholder="Example: iPhone 15, iOS version…"></div>
+        <div><label for="test-type">Test type</label><select id="test-type" name="type"><option>NFC tag scan</option><option>QR code scan</option><option>Route preview</option><option>Outdoor walking route</option><option>Live GPS walk</option><option>Failure / recovery</option></select></div>
+        <div><label for="test-start">Starting point</label><select id="test-start" name="start"></select></div>
+        <div><label for="test-destination">Destination</label><select id="test-destination" name="destination"></select></div>
+        <div><label for="test-result">Observed result</label><select id="test-result" name="result" required><option value="">Choose a result</option><option>Pass</option><option>Fail</option><option>Blocked</option></select></div>
+        <div><label for="test-seconds">Time in seconds <span>(optional)</span></label><input id="test-seconds" name="seconds" type="number" min="0" max="3600" step="0.1" placeholder="Example: 3.2"></div>
+        <div class="full-width"><label for="test-notes">Observed behavior, issues, fixes, and evidence</label><textarea id="test-notes" name="notes" required maxlength="1200" rows="3" placeholder="Describe what happened. Add a photo or video filename if you collected one."></textarea></div>
+        <div class="full-width form-bottom"><button class="button" type="submit">Save observed result</button><p id="record-status" role="status"></p></div>
+      </form>
+      <p class="storage-note" id="storage-note">Phone test records stay in this browser. Export them before switching devices or clearing browser data. GPS coordinates are not included.</p>
+      <div class="log-toolbar"><h3>Recorded trials <span id="record-count">0</span></h3><div><button class="button secondary" id="export-csv" type="button" disabled>Download phone-test CSV</button><button class="button secondary" id="export-report" type="button" disabled>Download full report JSON</button></div></div>
+      <div class="table-wrap"><table><caption class="sr-only">Observed phone test records</caption><thead><tr><th scope="col">Recorded / device</th><th scope="col">Trial</th><th scope="col">Result</th><th scope="col">Observation</th><th scope="col">Action</th></tr></thead><tbody id="record-rows"></tbody></table></div>
+      <p id="empty-log" class="empty-log">No phone tests recorded yet.</p>
+      <div id="undo-row" class="undo-row" hidden><span>One record removed.</span><button id="undo-remove" type="button">Undo removal</button></div>
+    </section>
+    <footer class="tools-footer">Campus Tap · ENGR 408 student prototype · <a href="sources.html">Map data & licenses</a><p>Outdoor route estimates require a field test. Follow actual signs and crossings.</p></footer>
+  </main>
+  <div id="print-signs" class="print-signs" aria-hidden="true"></div>
+  <div id="tools-toast" class="toast" role="status" hidden></div>
+</body>
+</html>
