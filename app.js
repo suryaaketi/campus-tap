@@ -1,5 +1,5 @@
 import { WalkingRouter, metersBetween } from './router.js';
-import { LocationWatch, routeProgress, currentInstruction } from './navigation.js';
+import { LocationWatch, HeadingWatch, routeProgress, currentInstruction, compassBearing } from './navigation.js';
 import { locationLink } from './prototype.js';
 
 const paths = {
@@ -37,6 +37,8 @@ let avoidStairs = false, locationReading = false;
 let walkMode=null, walkSteps=[], activeStep=0, phoneMarker=null, accuracyCircle=null, lastFix=null;
 let followLocation=true, liveOriginSet=false, offRouteFixes=0, lastReroute=0, arrivalFixes=0, wakeLock=null;
 const phoneOrigin = point => ({id:'phone',name:'Your phone location',point});
+let markerMode=null, shownHeading=null, coneAngle=null;
+const headingWatch=new HeadingWatch(window,reading=>{ if(walkMode==='live') showHeading(reading.heading,reading.accuracy!==null && reading.accuracy>25); });
 const locationWatch=new LocationWatch(navigator.geolocation,receiveFix,locationState);
 const params = new URLSearchParams(location.search);
 const requestedStart = (params.get('start') || params.get('from') || '').toLowerCase();
@@ -256,14 +258,29 @@ function highlightStep() {
 }
 function drawPosition(point,accuracy=null,simulated=false) {
   if(!map) return;
+  const mode=simulated ? 'simulated' : 'live';
   if(!phoneMarker) phoneMarker=L.marker(point,{zIndexOffset:1800,keyboard:false}).addTo(map);
-  phoneMarker.setLatLng(point).setIcon(L.divIcon({className:'position-marker',html:`<span class="live-dot${simulated ? ' simulated' : ''}"></span>`,iconSize:[20,20],iconAnchor:[10,10]}));
+  phoneMarker.setLatLng(point);
+  // Build the icon once per mode so the direction cone is rotated in place instead of redrawn on every fix.
+  if(markerMode!==mode) {
+    markerMode=mode; coneAngle=null;
+    phoneMarker.setIcon(L.divIcon({className:'position-marker',html:`<span class="heading-cone${simulated ? ' simulated' : ''}" hidden></span><span class="live-dot${simulated ? ' simulated' : ''}"></span>`,iconSize:[20,20],iconAnchor:[10,10]}));
+    if(shownHeading) showHeading(shownHeading.heading,shownHeading.wide);
+  }
   phoneMarker.options.title=simulated ? 'Simulated position in route preview' : 'Your phone location';
   if(accuracy!==null) {
     if(!accuracyCircle) accuracyCircle=L.circle(point,{radius:accuracy,color:'#3475b8',weight:1,fillOpacity:.10,interactive:false}).addTo(map);
     accuracyCircle.setLatLng(point).setRadius(accuracy);
   } else if(accuracyCircle) {accuracyCircle.remove(); accuracyCircle=null;}
   if(followLocation) map.panTo(point,{animate:false});
+}
+// Map stays north-up; the cone turns to show which way the phone (or the simulated walker) faces.
+function showHeading(heading,wide=false) {
+  shownHeading=Number.isFinite(heading) ? {heading,wide} : null;
+  const cone=phoneMarker?.getElement()?.querySelector('.heading-cone'); if(!cone) return;
+  cone.hidden=!shownHeading; if(!shownHeading) return;
+  coneAngle=coneAngle===null ? heading : coneAngle+((heading-coneAngle%360+540)%360)-180;
+  cone.style.transform=`rotate(${coneAngle}deg)`; cone.classList.toggle('wide',wide);
 }
 async function keepScreenOn() {
   if(!('wakeLock' in navigator) || wakeLock) return;
@@ -275,7 +292,8 @@ async function keepScreenOn() {
 }
 function releaseScreen() { const lock=wakeLock; wakeLock=null; lock?.release().catch(()=>{}); }
 function endWalk() {
-  locationWatch.stop(); releaseScreen(); walkingUI(null); lastFix=null; liveOriginSet=false;
+  locationWatch.stop(); headingWatch.stop(); releaseScreen(); walkingUI(null); lastFix=null; liveOriginSet=false;
+  markerMode=null; shownHeading=null; coneAngle=null;
   if(phoneMarker) {phoneMarker.remove();phoneMarker=null;}
   if(accuracyCircle) {accuracyCircle.remove();accuracyCircle=null;}
   document.querySelectorAll('.active-step').forEach(item=>item.classList.remove('active-step'));
@@ -295,15 +313,17 @@ function renderPreview() {
   $('preview-count').textContent=`${activeStep+1} / ${walkSteps.length+1}`;
   hud(step?.text || `Arrive near ${destination.name}`,step ? `Follow the highlighted path for ${formatDistance(step.distance)}.` : 'Follow signs to the entrance.',step?.maneuver || 'pin');
   highlightStep();
-  const point=step ? currentRoute.points[step.startIndex] : currentRoute.points.at(-1);
+  const points=currentRoute.points, point=step ? points[step.startIndex] : points.at(-1);
+  const from=step ? points[step.startIndex] : points.at(-2), to=step ? points[Math.min(step.startIndex+1,points.length-1)] : points.at(-1);
   drawPosition(point,null,true);
+  showHeading(from && to && (from[0]!==to[0] || from[1]!==to[1]) ? compassBearing(from,to) : null);
   if(map && followLocation) map.setView(point,17,{animate:false});
 }
 function startWalk() {
   if(!currentRoute || !map) return;
   if(!window.isSecureContext) { message('Live location needs HTTPS. On the published website, press Start walk and allow location access. You can use Preview route here.'); return; }
   endWalk(); message(''); walkingUI('live'); offRouteFixes=arrivalFixes=0;
-  keepScreenOn(); locationWatch.start();
+  headingWatch.start(); keepScreenOn(); locationWatch.start();
   if(matchMedia('(max-width:700px)').matches) document.querySelector('.map-panel').scrollIntoView({block:'start'});
 }
 function locationState(state) {
@@ -342,8 +362,10 @@ function receiveFix(fix) {
   const near=metersBetween(fix.point,destination.point)<=18 && fix.accuracy<=25 && remaining<=35;
   arrivalFixes=near ? arrivalFixes+1 : 0;
   drawPosition(fix.point,fix.accuracy);
+  // No compass (denied or unsupported): fall back to GPS direction of travel once the walker is moving.
+  if(!headingWatch.fresh() && fix.heading!==null && fix.speed>=0.8) showHeading(fix.heading,true);
   $('route-minutes').textContent=`${Math.max(1,Math.ceil(remaining/75))} min`; $('route-distance').textContent=formatDistance(remaining);
-  $('walk-status').textContent=`GPS active · accuracy about ${Math.round(fix.accuracy)} m. Keep this page open. Drag the map to look around; Recenter resumes following.`;
+  $('walk-status').textContent=`GPS active · accuracy about ${Math.round(fix.accuracy)} m. ${headingWatch.fresh() ? 'The blue cone shows where your phone points.' : 'Direction appears once you start walking.'} Keep this page open. Drag the map to look around; Recenter resumes following.`;
   hud(step?.text || `Continue to ${destination.name}`,`${formatDistance(Math.max(0,(step?.endDistance || 0)-progress.traveled))} on this step · ${formatDistance(remaining)} remaining`,step?.maneuver || 'walk');
   if(arrivalFixes>=2) {
     locationWatch.stop(); releaseScreen(); activeStep=walkSteps.length; highlightStep();

@@ -6,6 +6,8 @@ Tap a programmed NFC tag to open the website at a known starting point. Choose o
 
 **Start walk** keeps the map and walking directions inside this website. Allow location access to show your position, follow your progress and update the route if you leave it. Keep the page visible. Ending the walk, arriving, changing destinations or hiding the page stops live location updates.
 
+During a walk, a cone on the position dot shows which way the phone points. The map stays north-up. On iPhone, allow Motion & Orientation access when asked; if the compass is unavailable, the cone follows your GPS direction of travel once you are walking.
+
 **Preview route** uses clearly labeled simulated positions and Previous/Next buttons, without requesting your location.
 
 Open **NFC tag setup** on the published website to copy a starting-point URL or download all tag links. URLs preserve the GitHub Pages project path.
