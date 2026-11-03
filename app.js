@@ -1,6 +1,7 @@
 import { WalkingRouter, metersBetween } from './router.js';
 import { LocationWatch, HeadingWatch, routeProgress, currentInstruction, compassBearing } from './navigation.js';
 import { locationLink } from './prototype.js';
+import { createSheet } from './sheet.js';
 
 const paths = {
   pin:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
@@ -14,7 +15,7 @@ const paths = {
   landmark:'<path d="m3 8 9-5 9 5H3Zm0 13h18M5 10v8m5-8v8m4-8v8m5-8v8M3 18h18"/>',
   hub:'<rect x="4" y="5" width="16" height="16" rx="1"/><path d="M9 5V2h6v3M9 21v-6h6v6M7 9h2m6 0h2M7 12h2m6 0h2"/>',
   arrow:'<path d="m9 5 7 7-7 7"/>',
-  back:'<path d="m14 5-7 7 7 7m-6-7h13"/>',
+  back:'<path d="m15 5-7 7 7 7"/>',
   external:'<path d="M14 3h7v7m0-7L11 13M10 4H4v16h16v-6"/>',
   walk:'<circle cx="14" cy="4" r="2"/><path d="m7 21 3-7 4 2 2 5m-6-7 2-6 3 4h4M6 12l3-4h3"/>',
   expand:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -29,6 +30,7 @@ paths.parking='<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M10 17V
 paths.building='<path d="M4 21V5l8-2v18m0-12h8v12M3 21h18M7 8h2m-2 4h2m-2 4h2m6-4h2m-2 4h2"/>';
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.pin}</svg>`;
 const $ = id => document.getElementById(id);
+const sheet = createSheet($('sheet'),$('sheet-grab'));
 function el(tag, className, text) { const e = document.createElement(tag); if (className) e.className = className; if (text !== undefined) e.textContent = text; return e; }
 function symbol(name, className = '') { const e = el('span',className); e.innerHTML = icon(name); return e; }
 document.querySelectorAll('[data-icon]').forEach(e => { e.innerHTML = icon(e.dataset.icon); });
@@ -38,7 +40,7 @@ let markers = new Map(), routeCache = new Map(), currentRoute = null, toastTimer
 // places = the eight NFC tag locations (featured); extras = generated campus buildings, parking and food.
 let extras = [], allPlaces = [], visibleExtras = [], extraLayer = null, distanceTable = null, distanceKey = '';
 const snapCache = new Map(), LIST_LIMIT = 40;
-const pinColors = { campus:'#6d7d8f', study:'#5d8178', food:'#ad795a', parking:'#4c5f9a' };
+const pinColors = { campus:'#5856d6', study:'#a2845e', food:'#ff9500', parking:'#007aff' };
 let avoidStairs = false, locationReading = false;
 let walkMode=null, walkSteps=[], activeStep=0, phoneMarker=null, accuracyCircle=null, lastFix=null;
 let followLocation=true, liveOriginSet=false, offRouteFixes=0, lastReroute=0, arrivalFixes=0, wakeLock=null;
@@ -119,7 +121,7 @@ function buildSelect() {
 }
 function initMap() {
   if (!window.L) { $('map-status').textContent = 'The interactive map could not load. You can still choose a place and open walking directions.'; $('map-status').hidden = false; return; }
-  map = L.map('map',{zoomControl:false,preferCanvas:true,minZoom:15,maxZoom:19,maxBounds:[[40.786,-77.876],[40.810,-77.849]],maxBoundsViscosity:0.8}).setView([40.7985,-77.8625],16);
+  map = L.map('map',{zoomControl:false,preferCanvas:true,minZoom:15,maxZoom:19,maxBounds:[[40.774,-77.892],[40.822,-77.833]],maxBoundsViscosity:0.8}).setView([40.7985,-77.8625],16);
   map.attributionControl.addAttribution('© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="sources.html" target="_blank" rel="noopener">Map data</a>');
   loadBasemap();
   L.control.zoom({position:'bottomright'}).addTo(map);
@@ -189,11 +191,29 @@ function updateMarkers() {
   startMarker.bindTooltip(document.createTextNode(`Starting point: ${origin.name}`),{direction:'top',offset:[0,-15]});
   updateExtraMarkers();
 }
+// The panel covers part of the map (the bottom on phones, the left on wider screens): frame things in the rest.
+function mapCover() {
+  if (!map) return { left:0, bottom:0 };
+  if (sheet.active()) return { left:0, bottom:sheet.visible() };
+  const m = $('map').getBoundingClientRect(), s = $('sheet').getBoundingClientRect();
+  return { left:Math.max(0,s.right - m.left), bottom:0 };
+}
+function framing() {
+  const cover = mapCover(), top = walkMode ? 120 : 24;
+  return { paddingTopLeft:[cover.left + 40, top + 24], paddingBottomRight:[64, cover.bottom + 28] };
+}
+// Put a point in the middle of the uncovered part of the map, gliding there.
+function centerOn(point, zoom = map.getZoom()) {
+  if (!map) return;
+  const cover = mapCover(), shifted = map.unproject(map.project(point,zoom).add([-cover.left / 2, cover.bottom / 2]),zoom);
+  map.setView(shifted,zoom,{animate:true,duration:.6,easeLinearity:.2});
+}
 function fitMap() {
   if (!map || !places.length) return;
-  if (destination && currentRoute?.points.length > 1) map.fitBounds(L.latLngBounds(currentRoute.points),{padding:[62,75],maxZoom:17,animate:false});
-  else if (destination) map.fitBounds([origin.point,destination.point],{padding:[70,75],maxZoom:17,animate:false});
-  else map.fitBounds(places.map(p => p.point),{padding:[70,75],maxZoom:16,animate:false});
+  const options = {...framing(),animate:true,duration:.6};
+  if (destination && currentRoute?.points.length > 1) map.fitBounds(L.latLngBounds(currentRoute.points),{...options,maxZoom:17});
+  else if (destination) map.fitBounds([origin.point,destination.point],{...options,maxZoom:17});
+  else map.fitBounds(places.map(p => p.point),{...options,maxZoom:16});
 }
 function renderPlaces() {
   if (!origin) return;
@@ -207,7 +227,7 @@ function renderPlaces() {
   visibleExtras = filtered.filter(p => !p.featured);
   const list = $('place-list'); list.replaceChildren();
   $('place-count').textContent = matched.length > filtered.length ? `${filtered.length} of ${matched.length} places` : `${matched.length} ${matched.length === 1 ? 'place' : 'places'}`;
-  $('list-label').textContent = query ? 'SEARCH RESULTS' : category === 'all' ? 'EXPLORE CAMPUS' : categoryNames[category].toUpperCase();
+  $('list-label').textContent = query ? 'Results' : category === 'all' ? 'Nearby' : categoryNames[category];
   updateExtraMarkers();
   if (!filtered.length) { list.append(el('p','empty-state','No places match that search. Try “library”, “HUB”, “parking”, or “pizza”.')); return; }
   filtered.forEach(p => {
@@ -229,22 +249,22 @@ function selectDestination(id) {
   if (p.id === origin.id) { toast('This is your starting point. Choose another destination.'); return; }
   if(walkMode) endWalk();
   destination = p;
-  $('places').hidden = true; $('route-view').hidden = false;
-  renderRoute(); updateAddress();
-  if (matchMedia('(max-width:700px)').matches) $('route-view').scrollIntoView({behavior:'smooth',block:'start'});
-  else document.querySelector('.finder').scrollTo({top:0,behavior:'smooth'});
+  $('places').hidden = true; $('route-view').hidden = false; document.body.classList.add('has-route');
+  $('sheet').scrollTo({top:0,behavior:'smooth'}); sheet.snap('medium');
+  renderRoute(); updateAddress(); sheet.refresh();
 }
 function showPlaces() {
   endWalk();
   destination = null; currentRoute = null;
-  $('places').hidden = false; $('route-view').hidden = true;
+  $('places').hidden = false; $('route-view').hidden = true; document.body.classList.remove('has-route');
+  sheet.snap('medium');
   $('map-heading').textContent = 'University Park'; $('map-description').textContent = 'Campus to College Avenue';
   if (routeLayer) { routeLayer.remove(); routeLayer = null; }
   updateMarkers(); renderPlaces(); fitMap(); updateAddress();
 }
 function renderRoute() {
   if (!destination) return;
-  $('route-category').textContent = categoryNames[destination.category];
+  $('route-category').textContent = `From ${origin.name}`;
   $('route-title').textContent = destination.name; $('route-subtitle').textContent = destination.detail;
   $('avoid-stairs').checked = avoidStairs;
   currentRoute = routeFor(destination);
@@ -263,8 +283,8 @@ function renderRoute() {
     $('step-count').textContent = `${$('route-steps').children.length} steps`;
     if (map) {
       routeLayer = L.featureGroup([
-        L.polyline(currentRoute.points,{color:'#fff',weight:9,opacity:.95,lineCap:'round'}),
-        L.polyline(currentRoute.points,{color:'#254f7d',weight:5,opacity:1,lineCap:'round'})
+        L.polyline(currentRoute.points,{color:'#fff',weight:10,opacity:.9,lineCap:'round',lineJoin:'round'}),
+        L.polyline(currentRoute.points,{color:'#007aff',weight:6,opacity:1,lineCap:'round',lineJoin:'round'})
       ]).addTo(map);
     }
   } else { walkSteps=[]; $('step-count').textContent = ''; }
@@ -285,7 +305,7 @@ function walkingUI(mode) {
   requestAnimationFrame(()=>map?.invalidateSize());
 }
 function hud(title,detail,maneuver='walk') {
-  $('walk-label').textContent=walkMode==='preview' ? 'ROUTE PREVIEW · SIMULATED' : 'LIVE WALK';
+  $('walk-label').textContent=walkMode==='preview' ? 'Preview with a simulated position' : 'Live walk';
   $('walk-instruction').textContent=title; $('walk-detail').textContent=detail;
   $('walk-symbol').replaceChildren(symbol(paths[maneuver] ? maneuver : 'walk'));
 }
@@ -311,10 +331,10 @@ function drawPosition(point,accuracy=null,simulated=false) {
   }
   phoneMarker.options.title=simulated ? 'Simulated position in route preview' : 'Your phone location';
   if(accuracy!==null) {
-    if(!accuracyCircle) accuracyCircle=L.circle(point,{radius:accuracy,color:'#3475b8',weight:1,fillOpacity:.10,interactive:false}).addTo(map);
+    if(!accuracyCircle) accuracyCircle=L.circle(point,{radius:accuracy,color:'#007aff',weight:1,fillOpacity:.10,interactive:false}).addTo(map);
     accuracyCircle.setLatLng(point).setRadius(accuracy);
   } else if(accuracyCircle) {accuracyCircle.remove(); accuracyCircle=null;}
-  if(followLocation) map.panTo(point,{animate:false});
+  if(followLocation && !simulated) centerOn(point);
 }
 // Map stays north-up; the cone turns to show which way the phone (or the simulated walker) faces.
 function showHeading(heading,wide=false) {
@@ -346,8 +366,7 @@ function startPreview() {
   if(!currentRoute || !map) return;
   endWalk(); walkingUI('preview'); activeStep=0; message('');
   $('walk-status').textContent='Preview only. The orange dot is a simulated position; your location is not being used.';
-  renderPreview();
-  if(matchMedia('(max-width:700px)').matches) document.querySelector('.map-panel').scrollIntoView({block:'start'});
+  sheet.snap('peek'); renderPreview();
 }
 function renderPreview() {
   const step=walkSteps[activeStep];
@@ -359,14 +378,14 @@ function renderPreview() {
   const from=step ? points[step.startIndex] : points.at(-2), to=step ? points[Math.min(step.startIndex+1,points.length-1)] : points.at(-1);
   drawPosition(point,null,true);
   showHeading(from && to && (from[0]!==to[0] || from[1]!==to[1]) ? compassBearing(from,to) : null);
-  if(map && followLocation) map.setView(point,17,{animate:false});
+  if(map && followLocation) centerOn(point,17);
 }
 function startWalk() {
   if(!currentRoute || !map) return;
   if(!window.isSecureContext) { message('Live location needs HTTPS. On the published website, press Start walk and allow location access. You can use Preview route here.'); return; }
   endWalk(); message(''); walkingUI('live'); offRouteFixes=arrivalFixes=0;
   headingWatch.start(); keepScreenOn(); locationWatch.start();
-  if(matchMedia('(max-width:700px)').matches) document.querySelector('.map-panel').scrollIntoView({block:'start'});
+  sheet.snap('peek');
 }
 function locationState(state) {
   if(walkMode!=='live') return;
@@ -388,7 +407,7 @@ function receiveFix(fix) {
     // The tag is the trusted start. Only replace it if the phone is clearly somewhere else.
     if(origin.id==='phone' || metersBetween(fix.point,origin.point)>Math.max(60,fix.accuracy*2)) setOrigin(phoneOrigin(fix.point),false);
     else $('origin-context').textContent=`Route starts at ${origin.name}. GPS only follows your progress.`;
-    if(map) map.setView(fix.point,17,{animate:false});
+    if(map) centerOn(fix.point,17);
   }
   if(!currentRoute) {endWalk();message('A route from your phone location could not be found with this setting. Choose a nearby starting point or change the stairs setting.');return;}
   let progress=routeProgress(currentRoute.points,fix.point);
@@ -454,7 +473,9 @@ async function getLocation() {
 $('search').addEventListener('input',renderPlaces);
 document.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click',() => {
   category = button.dataset.category;
-  document.querySelectorAll('[data-category]').forEach(b => { const active = b === button; b.classList.toggle('active',active); b.setAttribute('aria-pressed',String(active)); }); renderPlaces();
+  const buttons = [...document.querySelectorAll('[data-category]')];
+  button.parentElement.style.setProperty('--segment',buttons.indexOf(button));
+  buttons.forEach(b => { const active = b === button; b.classList.toggle('active',active); b.setAttribute('aria-pressed',String(active)); }); renderPlaces();
 }));
 $('start-select').addEventListener('change',event => { const p = places.find(p => p.id === event.target.value); if (p) { endWalk(); message(''); setOrigin(p); } else if (event.target.value === 'phone') getLocation(); });
 $('use-location').addEventListener('click',getLocation);
@@ -463,10 +484,12 @@ $('back-to-places').addEventListener('click',showPlaces);
 $('fit-map').addEventListener('click',()=>{if(walkMode){followLocation=false;$('recenter-map').hidden=false;}fitMap();});
 $('start-walk').addEventListener('click',startWalk);
 $('preview-walk').addEventListener('click',startPreview);
-$('stop-walk').addEventListener('click',()=>{endWalk(); if(destination) renderRoute();});
+$('stop-walk').addEventListener('click',()=>{endWalk(); sheet.snap('medium'); if(destination) renderRoute();});
 $('previous-step').addEventListener('click',()=>{activeStep=Math.max(0,activeStep-1); renderPreview();});
 $('next-step').addEventListener('click',()=>{activeStep=Math.min(walkSteps.length,activeStep+1); renderPreview();});
-$('recenter-map').addEventListener('click',()=>{followLocation=true; $('recenter-map').hidden=true; if(walkMode==='preview') renderPreview(); else if(lastFix) map?.panTo(lastFix.point,{animate:false});});
+$('recenter-map').addEventListener('click',()=>{followLocation=true; $('recenter-map').hidden=true; if(walkMode==='preview') renderPreview(); else if(lastFix) centerOn(lastFix.point);});
+// Typing a search needs room for results, as in Apple Maps.
+$('search').addEventListener('focus',() => sheet.snap('large'));
 window.addEventListener('pagehide',endWalk);
 document.addEventListener('visibilitychange',()=>{if(document.hidden && walkMode==='live'){endWalk();message('Walk paused while the page was hidden. Press Start walk to resume live location.');}});
 $('setup-open').addEventListener('click',openSetup);
@@ -490,7 +513,7 @@ async function init() {
         .map(p => ({...p,description:p.description || '',detail:p.detail || '',icon:paths[p.icon] ? p.icon : 'pin'}));
     } catch (error) { extras = []; console.warn('Campus destinations list unavailable.',error); }
     allPlaces = [...places,...extras];
-    buildSelect(); initMap(); avoidStairs = params.get('stairs') === 'avoid';
+    buildSelect(); sheet.snap('medium',false); initMap(); avoidStairs = params.get('stairs') === 'avoid';
     const start = places.find(p => p.id === requestedStart) || places.find(p => p.id === 'allen-gates');
     setOrigin(start,false);
     if (requestedStart === 'phone') message('Tap “Use my location” to get a fresh location from this phone.');
