@@ -35,7 +35,8 @@ let places = [], router, origin, destination = null, category = 'all', map, rout
 let markers = new Map(), routeCache = new Map(), currentRoute = null, toastTimer;
 let avoidStairs = false, locationReading = false;
 let walkMode=null, walkSteps=[], activeStep=0, phoneMarker=null, accuracyCircle=null, lastFix=null;
-let followLocation=true, liveOriginSet=false, offRouteFixes=0, lastReroute=0, arrivalFixes=0;
+let followLocation=true, liveOriginSet=false, offRouteFixes=0, lastReroute=0, arrivalFixes=0, wakeLock=null;
+const phoneOrigin = point => ({id:'phone',name:'Your phone location',point});
 const locationWatch=new LocationWatch(navigator.geolocation,receiveFix,locationState);
 const params = new URLSearchParams(location.search);
 const requestedStart = (params.get('start') || params.get('from') || '').toLowerCase();
@@ -56,8 +57,10 @@ function routeFor(place) {
 }
 function updateAddress() {
   const url = new URL(location.href);
+  // During a live walk, keep the tag's start in the address so a reload never loses it.
+  const tagStart = walkMode==='live' && origin.id==='phone' ? new URLSearchParams(location.search).get('start') : null;
   url.search = '';
-  url.searchParams.set('start',origin.id);
+  url.searchParams.set('start',tagStart || origin.id);
   if (destination) url.searchParams.set('to',destination.id);
   if (avoidStairs) url.searchParams.set('stairs','avoid');
   history.replaceState(null,'',url.pathname + url.search + url.hash);
@@ -262,8 +265,17 @@ function drawPosition(point,accuracy=null,simulated=false) {
   } else if(accuracyCircle) {accuracyCircle.remove(); accuracyCircle=null;}
   if(followLocation) map.panTo(point,{animate:false});
 }
+async function keepScreenOn() {
+  if(!('wakeLock' in navigator) || wakeLock) return;
+  try {
+    const lock=await navigator.wakeLock.request('screen');
+    if(walkMode!=='live') { lock.release().catch(()=>{}); return; }
+    wakeLock=lock; lock.addEventListener('release',()=>{ if(wakeLock===lock) wakeLock=null; });
+  } catch {}
+}
+function releaseScreen() { const lock=wakeLock; wakeLock=null; lock?.release().catch(()=>{}); }
 function endWalk() {
-  locationWatch.stop(); walkingUI(null); lastFix=null; liveOriginSet=false;
+  locationWatch.stop(); releaseScreen(); walkingUI(null); lastFix=null; liveOriginSet=false;
   if(phoneMarker) {phoneMarker.remove();phoneMarker=null;}
   if(accuracyCircle) {accuracyCircle.remove();accuracyCircle=null;}
   document.querySelectorAll('.active-step').forEach(item=>item.classList.remove('active-step'));
@@ -291,7 +303,7 @@ function startWalk() {
   if(!currentRoute || !map) return;
   if(!window.isSecureContext) { message('Live location needs HTTPS. On the published website, press Start walk and allow location access. You can use Preview route here.'); return; }
   endWalk(); message(''); walkingUI('live'); offRouteFixes=arrivalFixes=0;
-  locationWatch.start();
+  keepScreenOn(); locationWatch.start();
   if(matchMedia('(max-width:700px)').matches) document.querySelector('.map-panel').scrollIntoView({block:'start'});
 }
 function locationState(state) {
@@ -311,14 +323,16 @@ function receiveFix(fix) {
   lastFix=fix;
   if(!liveOriginSet) {
     liveOriginSet=true; lastReroute=fix.timestamp;
-    setOrigin({id:'phone',name:'Your phone location',point:fix.point});
+    // The tag is the trusted start. Only replace it if the phone is clearly somewhere else.
+    if(origin.id==='phone' || metersBetween(fix.point,origin.point)>Math.max(60,fix.accuracy*2)) setOrigin(phoneOrigin(fix.point),false);
+    else $('origin-context').textContent=`Route starts at ${origin.name}. GPS only follows your progress.`;
     if(map) map.setView(fix.point,17,{animate:false});
   }
   if(!currentRoute) {endWalk();message('A route from your phone location could not be found with this setting. Choose a nearby starting point or change the stairs setting.');return;}
   let progress=routeProgress(currentRoute.points,fix.point);
   offRouteFixes=progress.distanceToRoute>Math.max(35,fix.accuracy*1.5) ? offRouteFixes+1 : 0;
   if(offRouteFixes>=3 && fix.timestamp-lastReroute>=10000) {
-    origin.point=fix.point; routeCache.clear(); renderRoute(); offRouteFixes=0; lastReroute=fix.timestamp;
+    offRouteFixes=0; lastReroute=fix.timestamp; setOrigin(phoneOrigin(fix.point),false);
     if(!currentRoute) {endWalk();message('No mapped route was found from here. Choose another starting point.');return;}
     progress=routeProgress(currentRoute.points,fix.point); toast('Walking route updated from your location.');
   }
@@ -332,7 +346,7 @@ function receiveFix(fix) {
   $('walk-status').textContent=`GPS active · accuracy about ${Math.round(fix.accuracy)} m. Keep this page open. Drag the map to look around; Recenter resumes following.`;
   hud(step?.text || `Continue to ${destination.name}`,`${formatDistance(Math.max(0,(step?.endDistance || 0)-progress.traveled))} on this step · ${formatDistance(remaining)} remaining`,step?.maneuver || 'walk');
   if(arrivalFixes>=2) {
-    locationWatch.stop(); activeStep=walkSteps.length; highlightStep();
+    locationWatch.stop(); releaseScreen(); activeStep=walkSteps.length; highlightStep();
     $('route-minutes').textContent='Arrived'; $('route-distance').textContent='Nearby';
     $('walk-status').textContent='You are near the mapped destination. GPS updates have stopped. Follow signs to the entrance.';
     hud(`You’re near ${destination.name}`,'Walk complete. Follow signs to the entrance.','pin');
@@ -380,7 +394,7 @@ document.querySelectorAll('[data-category]').forEach(button => button.addEventLi
 }));
 $('start-select').addEventListener('change',event => { const p = places.find(p => p.id === event.target.value); if (p) { endWalk(); message(''); setOrigin(p); } else if (event.target.value === 'phone') getLocation(); });
 $('use-location').addEventListener('click',getLocation);
-$('avoid-stairs').addEventListener('change',event => { avoidStairs = event.target.checked; if(walkMode==='live' && lastFix) origin.point=lastFix.point; renderRoute(); updateAddress(); });
+$('avoid-stairs').addEventListener('change',event => { avoidStairs = event.target.checked; if(walkMode==='live' && lastFix) setOrigin(phoneOrigin(lastFix.point),false); else renderRoute(); updateAddress(); });
 $('back-to-places').addEventListener('click',showPlaces);
 $('fit-map').addEventListener('click',()=>{if(walkMode){followLocation=false;$('recenter-map').hidden=false;}fitMap();});
 $('start-walk').addEventListener('click',startWalk);
