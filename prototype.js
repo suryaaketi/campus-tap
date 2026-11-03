@@ -54,7 +54,7 @@ export function restoredRecords(raw,places) {
   } catch {return [];}
 }
 
-export async function websiteChecks(places,graph,pageURL,onProgress=()=>{},yieldUI=()=>Promise.resolve()) {
+export async function websiteChecks(places,graph,pageURL,onProgress=()=>{},yieldUI=()=>Promise.resolve(),extras=[]) {
   const rows=[];
   const check=(name,pass,detail)=>rows.push({name,result:pass?'Pass':'Fail',detail});
   const valid=Array.isArray(places)&&places.length>1&&new Set(places.map(p=>p.id)).size===places.length;
@@ -79,5 +79,10 @@ export async function websiteChecks(places,graph,pageURL,onProgress=()=>{},yield
   check('Avoid mapped stairs',stairsFree===total/2,`${stairsFree} / ${total/2} routes exclude every edge marked as stairs`);
   check('Complete written instructions',covered===total,`${covered} / ${total} routes cover all route segments`);
   check('Outside-area routing',router.route([39.95,-75.16],places[0].point)===null,'A location outside the campus area has no fabricated route');
+  if(extras.length) {
+    const from=(places.find(p=>p.id==='hub')||places[0]).point,table=router.distancesFrom(from);
+    const reachable=extras.filter(p=>{const snap=router.nearest(p.point);return snap.distance<=120&&Number.isFinite(table?.meters[snap.index]);}).length;
+    check('Campus destinations',reachable===extras.length,`${reachable} / ${extras.length} buildings, parking garages and food places have a walking route from the HUB`);
+  }
   return rows;
 }

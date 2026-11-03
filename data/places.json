@@ -50,6 +50,7 @@
     "buildingName": "Hetzel Union Building",
     "entranceNodeOsmId": 593991270,
     "category": "campus",
+    "also": ["food"],
     "description": "Campus life & gathering spaces",
     "detail": "Main entrance on HUB Plaza",
     "icon": "hub",

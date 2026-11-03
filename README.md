@@ -12,6 +12,16 @@ During a walk, a cone on the position dot shows which way the phone points. The 
 
 Open **NFC tag setup** on the published website to copy a starting-point URL or download all tag links. URLs preserve the GitHub Pages project path.
 
+## Campus destinations
+
+The eight NFC tag locations in `data/places.json` are hand-checked starting points. Every other destination (named campus and downtown buildings, parking garages, restaurants, fast food, cafés and food courts) is generated from OpenStreetMap into `data/destinations.json`. Food places inside a building route to that building's entrance, so vendors inside the HUB route to the HUB.
+
+To refresh the list, run this from the repository root on a computer with internet access, then run `npm test`:
+
+    node scripts/destinations.mjs
+
+Places more than 120 m from a mapped walking path are left out. The site still works without the file, using only the eight tag locations.
+
 ## Hosting
 
 GitHub Pages: deploy from `main`, `/ (root)`. No build, backend, paid map API or API key is needed.

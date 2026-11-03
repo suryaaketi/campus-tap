@@ -95,6 +95,31 @@ export class WalkingRouter {
     const distance = edgeIndices.reduce((sum, i) => sum + this.data.edges[i][2], 0) + a.distance + b.distance;
     return { points: indices.map(i => this.data.nodes[i]), indices, edgeIndices, distance, minutes: Math.max(1, Math.ceil(distance / 75)), startSnap: a, endSnap: b, hasStairs: edgeIndices.some(i => this.data.edges[i][4] & 1) };
   }
+  // One search from the start gives walking distance to every node, so a list of hundreds of
+  // destinations costs one pass instead of one route per card. Same edge costs as route().
+  distancesFrom(point, options = {}) {
+    const avoidStairs = !!options.avoidStairs, a = this.nearest(point, avoidStairs);
+    if (a.distance > 120) return null;
+    const n = this.data.nodes.length;
+    const costs = new Float64Array(n); costs.fill(Infinity);
+    const meters = new Float64Array(n); meters.fill(Infinity);
+    const queue = new MinHeap();
+    costs[a.index] = 0; meters[a.index] = a.distance;
+    queue.push([0, a.index]);
+    while (queue.length) {
+      const [cost, current] = queue.pop();
+      if (cost !== costs[current]) continue;
+      for (const [next, edgeIndex] of this.adj[current]) {
+        const edge = this.data.edges[edgeIndex];
+        if (avoidStairs && (edge[4] & 1)) continue;
+        const nextCost = cost + edge[2] * ((edge[4] & 2) ? 1.22 : 1) * ((edge[4] & 1) ? 1.15 : 1);
+        if (nextCost >= costs[next]) continue;
+        costs[next] = nextCost; meters[next] = meters[current] + edge[2];
+        queue.push([nextCost, next]);
+      }
+    }
+    return { meters, startSnap: a };
+  }
   instructions(route) {
     const edges=route.edgeIndices.map(i=>this.data.edges[i]), points=route.points;
     if (!edges.length) return [];

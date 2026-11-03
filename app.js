@@ -25,6 +25,8 @@ const paths = {
 paths.left='<path d="M19 20v-9a4 4 0 0 0-4-4H5m5-5L5 7l5 5"/>';
 paths.right='<path d="M5 20v-9a4 4 0 0 1 4-4h10m-5-5 5 5-5 5"/>';
 paths.straight='<path d="M12 21V3m-6 6 6-6 6 6"/>';
+paths.parking='<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M10 17V8h3a3 3 0 0 1 0 6h-3"/>';
+paths.building='<path d="M4 21V5l8-2v18m0-12h8v12M3 21h18M7 8h2m-2 4h2m-2 4h2m6-4h2m-2 4h2"/>';
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.pin}</svg>`;
 const $ = id => document.getElementById(id);
 function el(tag, className, text) { const e = document.createElement(tag); if (className) e.className = className; if (text !== undefined) e.textContent = text; return e; }
@@ -33,6 +35,10 @@ document.querySelectorAll('[data-icon]').forEach(e => { e.innerHTML = icon(e.dat
 
 let places = [], router, origin, destination = null, category = 'all', map, routeLayer, startMarker;
 let markers = new Map(), routeCache = new Map(), currentRoute = null, toastTimer;
+// places = the eight NFC tag locations (featured); extras = generated campus buildings, parking and food.
+let extras = [], allPlaces = [], visibleExtras = [], extraLayer = null, distanceTable = null, distanceKey = '';
+const snapCache = new Map(), LIST_LIMIT = 40;
+const pinColors = { campus:'#6d7d8f', study:'#5d8178', food:'#ad795a', parking:'#4c5f9a' };
 let avoidStairs = false, locationReading = false;
 let walkMode=null, walkSteps=[], activeStep=0, phoneMarker=null, accuracyCircle=null, lastFix=null;
 let followLocation=true, liveOriginSet=false, offRouteFixes=0, lastReroute=0, arrivalFixes=0, wakeLock=null;
@@ -43,7 +49,7 @@ const locationWatch=new LocationWatch(navigator.geolocation,receiveFix,locationS
 const params = new URLSearchParams(location.search);
 const requestedStart = (params.get('start') || params.get('from') || '').toLowerCase();
 const requestedDestination = (params.get('to') || '').toLowerCase();
-const categoryNames = { study:'Study & library', food:'Food & dining', campus:'Campus landmark' };
+const categoryNames = { study:'Study & library', food:'Food & dining', campus:'Campus', parking:'Parking' };
 const formatDistance = m => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.max(5,Math.round(m / 5) * 5)} m`;
 
 function toast(message) {
@@ -56,6 +62,33 @@ function routeFor(place) {
   const key = `${origin.id}:${origin.point.join(',')}:${place.id}:${avoidStairs}`;
   if (!routeCache.has(key)) routeCache.set(key,router.route(origin.point,place.point,{avoidStairs}));
   return routeCache.get(key);
+}
+function inCategory(p) { return category === 'all' || p.category === category || (p.also || []).includes(category); }
+// Walking distance for a list card, from one shared search per starting point (see router.distancesFrom).
+function walkFor(place) {
+  if (!router || !origin || place.id === origin.id) return null;
+  const key = `${origin.id}:${origin.point.join(',')}:${avoidStairs}`;
+  if (distanceKey !== key) { distanceKey = key; distanceTable = router.distancesFrom(origin.point,{avoidStairs}); }
+  if (!distanceTable) return null;
+  const snapKey = `${place.id}:${avoidStairs}`;
+  if (!snapCache.has(snapKey)) snapCache.set(snapKey,router.nearest(place.point,avoidStairs));
+  const snap = snapCache.get(snapKey);
+  const distance = snap.distance > 120 ? Infinity : distanceTable.meters[snap.index] + snap.distance;
+  return Number.isFinite(distance) ? { distance, minutes: Math.max(1,Math.ceil(distance / 75)) } : null;
+}
+function updateExtraMarkers() {
+  if (!map) return;
+  if (!extraLayer) extraLayer = L.layerGroup().addTo(map);
+  extraLayer.clearLayers();
+  if (destination) {
+    if (!destination.featured) L.marker(destination.point,{icon:L.divIcon({className:'campus-marker',html:`<span class="map-pin ${destination.category} destination">${icon(destination.icon)}</span>`,iconSize:[35,35],iconAnchor:[17,17]}),title:destination.name,zIndexOffset:1000,keyboard:false}).addTo(extraLayer);
+    return;
+  }
+  for (const p of visibleExtras) {
+    const dot = L.circleMarker(p.point,{radius:6,weight:2,color:'#fff',fillColor:pinColors[p.category] || pinColors.campus,fillOpacity:1});
+    dot.bindTooltip(document.createTextNode(p.name),{direction:'top',offset:[0,-6]});
+    dot.on('click',() => selectDestination(p.id)); dot.addTo(extraLayer);
+  }
 }
 function updateAddress() {
   const url = new URL(location.href);
@@ -154,6 +187,7 @@ function updateMarkers() {
   if (startMarker) startMarker.remove();
   startMarker = L.marker(origin.point,{icon:L.divIcon({className:'campus-marker',html:`<span class="map-pin start">${icon('start')}</span>`,iconSize:[35,35],iconAnchor:[17,17]}),title:`Starting point: ${origin.name}`,zIndexOffset:1200}).addTo(map);
   startMarker.bindTooltip(document.createTextNode(`Starting point: ${origin.name}`),{direction:'top',offset:[0,-15]});
+  updateExtraMarkers();
 }
 function fitMap() {
   if (!map || !places.length) return;
@@ -164,26 +198,34 @@ function fitMap() {
 function renderPlaces() {
   if (!origin) return;
   const query = $('search').value.toLowerCase().trim();
-  const filtered = places.filter(p => (category === 'all' || p.category === category) && `${p.name} ${p.description}`.toLowerCase().includes(query));
+  const matched = allPlaces.filter(p => inCategory(p) && `${p.name} ${p.description}`.toLowerCase().includes(query));
+  const walks = new Map(matched.map(p => [p.id, walkFor(p)]));
+  const far = p => walks.get(p.id)?.distance ?? Infinity, featuredFirst = !query && category === 'all';
+  // Starting point first, then the tag locations on the default view, then nearest walk first.
+  matched.sort((a,b) => (b.id === origin.id) - (a.id === origin.id) || (featuredFirst ? !!b.featured - !!a.featured : 0) || far(a) - far(b) || a.name.localeCompare(b.name));
+  const filtered = matched.slice(0,LIST_LIMIT);
+  visibleExtras = filtered.filter(p => !p.featured);
   const list = $('place-list'); list.replaceChildren();
-  $('place-count').textContent = `${filtered.length} ${filtered.length === 1 ? 'place' : 'places'}`;
+  $('place-count').textContent = matched.length > filtered.length ? `${filtered.length} of ${matched.length} places` : `${matched.length} ${matched.length === 1 ? 'place' : 'places'}`;
   $('list-label').textContent = query ? 'SEARCH RESULTS' : category === 'all' ? 'EXPLORE CAMPUS' : categoryNames[category].toUpperCase();
-  if (!filtered.length) { list.append(el('p','empty-state','No places match that search. Try “library”, “HUB”, or “food”.')); return; }
+  updateExtraMarkers();
+  if (!filtered.length) { list.append(el('p','empty-state','No places match that search. Try “library”, “HUB”, “parking”, or “pizza”.')); return; }
   filtered.forEach(p => {
     const card = el('button','place-card'); card.type = 'button'; card.dataset.place = p.id;
     card.append(symbol(p.icon,`place-symbol ${p.category}`));
     const details = el('span','place-info'); details.append(el('span','place-name',p.name),el('span','place-description',p.description));
     if (p.id === origin.id) { card.classList.add('is-start'); card.disabled = true; details.append(el('span','place-time here','Your starting point')); }
     else {
-      const route = routeFor(p), time = el('span','place-time'); time.append(symbol('walk'));
+      const route = walks.get(p.id), time = el('span','place-time'); time.append(symbol('walk'));
       time.append(document.createTextNode(route ? `${route.minutes} min · ${formatDistance(route.distance)}` : router ? 'View walking options' : 'Loading walking route…'));
       details.append(time); card.append(symbol('arrow','place-arrow')); card.addEventListener('click',() => selectDestination(p.id));
     }
     card.insertBefore(details,card.lastElementChild?.classList.contains('place-arrow') ? card.lastElementChild : null); list.append(card);
   });
+  if (matched.length > filtered.length) list.append(el('p','list-more',query ? 'Showing the closest matches. Type more of the name to narrow the list.' : 'Showing the closest places. Search or pick a category to find others.'));
 }
 function selectDestination(id) {
-  const p = places.find(p => p.id === id); if (!p) return;
+  const p = allPlaces.find(p => p.id === id); if (!p) return;
   if (p.id === origin.id) { toast('This is your starting point. Choose another destination.'); return; }
   if(walkMode) endWalk();
   destination = p;
@@ -439,13 +481,21 @@ document.addEventListener('keydown',event => { if (event.key === '/' && !['INPUT
 
 async function init() {
   try {
-    const response = await fetch('data/places.json'); if (!response.ok) throw new Error('places'); places = await response.json();
+    const [response,extraResponse] = await Promise.all([fetch('data/places.json'),fetch('data/destinations.json').catch(() => null)]);
+    if (!response.ok) throw new Error('places'); places = (await response.json()).map(p => ({...p,featured:true}));
+    // Generated destinations are optional: without the file the site keeps working with the eight tag locations.
+    try {
+      const ids = new Set(places.map(p => p.id)), data = extraResponse?.ok ? await extraResponse.json() : null;
+      extras = (data?.destinations || []).filter(p => p && typeof p.id === 'string' && !ids.has(p.id) && typeof p.name === 'string' && categoryNames[p.category] && Array.isArray(p.point) && p.point.length === 2 && p.point.every(Number.isFinite))
+        .map(p => ({...p,description:p.description || '',detail:p.detail || '',icon:paths[p.icon] ? p.icon : 'pin'}));
+    } catch (error) { extras = []; console.warn('Campus destinations list unavailable.',error); }
+    allPlaces = [...places,...extras];
     buildSelect(); initMap(); avoidStairs = params.get('stairs') === 'avoid';
     const start = places.find(p => p.id === requestedStart) || places.find(p => p.id === 'allen-gates');
     setOrigin(start,false);
     if (requestedStart === 'phone') message('Tap “Use my location” to get a fresh location from this phone.');
     else if (requestedStart && !places.some(p => p.id === requestedStart)) message('That location link is not recognized. Choose a starting point from the list.');
-    if (requestedDestination) { if (places.some(p => p.id === requestedDestination)) selectDestination(requestedDestination); else message('That destination is not part of this demo. Choose a place below.'); }
+    if (requestedDestination) { if (allPlaces.some(p => p.id === requestedDestination)) selectDestination(requestedDestination); else message('That destination is not part of this demo. Choose a place below.'); }
     const graphResponse = await fetch('data/walking-graph.json'); if (!graphResponse.ok) throw new Error('graph');
     router = new WalkingRouter(await graphResponse.json()); renderPlaces(); if (destination) renderRoute();
     if (location.hash === '#tags') openSetup();

@@ -78,7 +78,8 @@ $('run-checks').addEventListener('click',async()=>{
     const data=await Promise.all(['data/walking-graph.json','data/basemap.geojson','data/road-labels.json'].map(async path=>{const response=await fetch(path);if(!response.ok)throw new Error(`Could not load ${path}`);return response.json();}));
     if(!Array.isArray(data[1].features)||!Array.isArray(data[2]))throw new Error('The map background or labels have an unexpected format.');
     automatedResults=[{name:'Map files load',result:'Pass',detail:'Walking network, background geometry and road labels are available.'}];
-    const rows=await websiteChecks(places,data[0],location.href,(done,total)=>{$('checks-status').textContent=`Checking routes: ${done} / ${total}`;},()=>new Promise(resolve=>setTimeout(resolve,0)));
+    let extras=[];try{const response=await fetch('data/destinations.json');if(response.ok)extras=(await response.json()).destinations||[];}catch{}
+    const rows=await websiteChecks(places,data[0],location.href,(done,total)=>{$('checks-status').textContent=`Checking routes: ${done} / ${total}`;},()=>new Promise(resolve=>setTimeout(resolve,0)),extras);
     automatedResults.push(...rows);checksRunAt=new Date().toISOString();
     const failed=automatedResults.filter(row=>row.result==='Fail').length;
     $('checks-status').textContent=failed?`${failed} website check(s) failed. See details below.`:`${automatedResults.length} website checks passed. Phone and NFC tests remain in your observed test log.`;
